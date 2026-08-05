@@ -74,6 +74,54 @@
     return null;
   };
 
+  // FB overlays cards with transparent tap targets and handles gestures at the
+  // document root, so listeners on the button itself never win. Instead a single
+  // document-level capture handler (fires before anything FB attached below the
+  // document) hit-tests the touch coordinates against registered buttons.
+  const buttons = new Map(); // btn -> {card, rows}
+  const HIT_PAD = 8;
+
+  const ignoreSource = (card, rows) => {
+    const name = sourceName(rows);
+    if (name) {
+      ignored.add(name);
+      saveIgnored();
+      document.querySelectorAll(CARD).forEach((c) => {
+        if (c.hasAttribute(FLAG)) return;
+        if (sourceName(headerRows(c)) === name) hideCard(c);
+      });
+    }
+    hideCard(card);
+  };
+
+  const hitButton = (e) => {
+    const p = e.touches?.[0] || e.changedTouches?.[0] || e;
+    if (p.clientX == null) return null;
+    for (const [btn, data] of buttons) {
+      if (!btn.isConnected) { buttons.delete(btn); continue; }
+      const r = btn.getBoundingClientRect();
+      if (p.clientX >= r.left - HIT_PAD && p.clientX <= r.right + HIT_PAD &&
+          p.clientY >= r.top - HIT_PAD && p.clientY <= r.bottom + HIT_PAD) {
+        return { btn, data };
+      }
+    }
+    return null;
+  };
+
+  for (const type of ['touchstart', 'touchend', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click']) {
+    document.addEventListener(type, (e) => {
+      const hit = hitButton(e);
+      if (!hit) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      if (type === 'touchend' || type === 'click') {
+        buttons.delete(hit.btn);
+        ignoreSource(hit.data.card, hit.data.rows);
+      }
+    }, { capture: true, passive: false });
+  }
+
   const addIgnoreButton = (card, rows) => {
     if (card.hasAttribute(BTN_FLAG)) return;
     card.setAttribute(BTN_FLAG, '1');
@@ -81,36 +129,12 @@
     btn.textContent = '✕';
     btn.style.cssText =
       'position:absolute;top:6px;right:48px;z-index:9999;' +
-      'width:28px;height:28px;line-height:28px;text-align:center;' +
+      'width:32px;height:32px;line-height:32px;text-align:center;' +
       'border-radius:50%;background:rgba(120,120,120,.35);color:#fff;' +
-      'font-size:14px;';
-    // FB's touch UI navigates on touchend, not click - swallow every related
-    // event so the tap never reaches the card, and act once on touchend/click
-    let done = false;
-    const ignoreSource = () => {
-      if (done) return;
-      done = true;
-      const name = sourceName(rows);
-      if (name) {
-        ignored.add(name);
-        saveIgnored();
-        document.querySelectorAll(CARD).forEach((c) => {
-          if (c.hasAttribute(FLAG)) return;
-          if (sourceName(headerRows(c)) === name) hideCard(c);
-        });
-      }
-      hideCard(card);
-    };
-    for (const type of ['touchstart', 'touchend', 'touchmove', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click']) {
-      btn.addEventListener(type, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        if (type === 'touchend' || type === 'click') ignoreSource();
-      }, { capture: true, passive: false });
-    }
+      'font-size:15px;';
     if (!card.style.position) card.style.position = 'relative';
     card.appendChild(btn);
+    buttons.set(btn, { card, rows });
   };
 
   const scanCard = (card) => {
