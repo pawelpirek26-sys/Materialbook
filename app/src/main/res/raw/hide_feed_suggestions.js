@@ -1,4 +1,5 @@
 // Hide group & people suggestions in the main feed (PL + EN, text-based detection)
+// plus a per-card "ignore" button that builds a persistent user blocklist.
 (() => {
   const PHRASES = [
     'sugerowane dla ciebie',
@@ -18,32 +19,89 @@
   // posts from suggested groups show a join chip instead
   const FOLLOW_LABELS = ['obserwuj', 'follow', 'śledź', 'dołącz', 'join'];
   const FOLLOW_ZONE_PX = 200; // chip must sit in the card header, not in a nested shared post
+  // Group posts carry an "Author • 2 godz." line under the group name; posts from
+  // followed pages/friends have a bare timestamp line starting with a digit instead
+  const AUTHOR_TIME = /^[^\d•·].{0,60}?[•·]\s*\d+\s*(min|godz|tydz|mies|[a-z])\.?\s*([•·]|$)/i;
+  const TIME_ROW = /^\d+\s*(min|godz|tydz|mies|[a-z])\.?\s*([•·]|$)/i;
   const CARD = '[data-tracking-duration-id]';
   const FLAG = 'data-mb-sugg-hidden';
+  const BTN_FLAG = 'data-mb-ignore-btn';
+
+  const STORE_KEY = 'mb_ignored_sources';
+  let ignored;
+  try {
+    ignored = new Set(JSON.parse(localStorage.getItem(STORE_KEY) || '[]'));
+  } catch (e) {
+    ignored = new Set();
+  }
+  const saveIgnored = () => {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify([...ignored])); } catch (e) {}
+  };
+
   const matches = (txt) => {
     const t = txt.toLowerCase();
     return PHRASES.some(p => t.includes(p));
   };
+
   const hideCard = (card) => {
     card.setAttribute(FLAG, '1');
     card.style.display = 'none';
     const gap = card.previousElementSibling;
     if (gap && !gap.matches(CARD)) gap.style.display = 'none';
   };
-  // Group posts carry an "Author • 2 godz." line under the group name; posts from
-  // followed pages/friends have a bare timestamp line starting with a digit instead
-  const AUTHOR_TIME = /^[^\d•·].{0,60}?[•·]\s*\d+\s*(min|godz|tydz|mies|[a-z])\.?\s*([•·]|$)/i;
-  const hasFollowChip = (card) => {
+
+  const headerRows = (card) => {
     const cardTop = card.getBoundingClientRect().top;
-    const spans = card.querySelectorAll('.native-text, span');
-    for (const el of spans) {
+    const rows = [];
+    for (const el of card.querySelectorAll('.native-text, span')) {
+      if (el.getBoundingClientRect().top - cardTop >= FOLLOW_ZONE_PX) continue;
       const txt = el.textContent?.trim();
-      if (!txt || el.getBoundingClientRect().top - cardTop >= FOLLOW_ZONE_PX) continue;
-      if (FOLLOW_LABELS.includes(txt.toLowerCase())) return true;
-      if (txt.length < 80 && AUTHOR_TIME.test(txt)) return true;
+      if (txt) rows.push({ el, txt });
     }
-    return false;
+    return rows;
   };
+
+  // Source name = first header row that is not a timestamp, chip or phrase row.
+  // Cut at the first bullet, strip trailing decorations.
+  const sourceName = (rows) => {
+    for (const { txt } of rows) {
+      if (txt.length < 2 || txt.length > 120) continue;
+      if (TIME_ROW.test(txt)) continue;
+      if (FOLLOW_LABELS.includes(txt.toLowerCase())) continue;
+      const name = txt.split(/[•·]/)[0].replace(/[✓✔☑\s]+$/g, '').trim();
+      if (name.length >= 2) return name.toLowerCase();
+    }
+    return null;
+  };
+
+  const addIgnoreButton = (card, rows) => {
+    if (card.hasAttribute(BTN_FLAG)) return;
+    card.setAttribute(BTN_FLAG, '1');
+    const btn = document.createElement('div');
+    btn.textContent = '✕';
+    btn.style.cssText =
+      'position:absolute;top:6px;right:48px;z-index:9999;' +
+      'width:28px;height:28px;line-height:28px;text-align:center;' +
+      'border-radius:50%;background:rgba(120,120,120,.35);color:#fff;' +
+      'font-size:14px;';
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const name = sourceName(rows);
+      if (name) {
+        ignored.add(name);
+        saveIgnored();
+        document.querySelectorAll(CARD).forEach((c) => {
+          if (c.hasAttribute(FLAG)) return;
+          if (sourceName(headerRows(c)) === name) hideCard(c);
+        });
+      }
+      hideCard(card);
+    }, true);
+    if (!card.style.position) card.style.position = 'relative';
+    card.appendChild(btn);
+  };
+
   const scanCard = (card) => {
     if (card.hasAttribute(FLAG)) return;
     const labels = card.querySelectorAll('.native-text > span, h3, [data-mcomponent="TextArea"] .native-text');
@@ -54,8 +112,19 @@
         return;
       }
     }
-    if (hasFollowChip(card)) hideCard(card);
+    const rows = headerRows(card);
+    const name = sourceName(rows);
+    if (name && ignored.has(name)) {
+      hideCard(card);
+      return;
+    }
+    for (const { txt } of rows) {
+      if (FOLLOW_LABELS.includes(txt.toLowerCase())) { hideCard(card); return; }
+      if (txt.length < 80 && AUTHOR_TIME.test(txt)) { hideCard(card); return; }
+    }
+    addIgnoreButton(card, rows);
   };
+
   const handle = (node) => {
     if (!(node instanceof HTMLElement)) return;
     const cards = node.matches?.(CARD) ? [node] : node.querySelectorAll?.(CARD) || [];
