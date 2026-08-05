@@ -30,15 +30,17 @@
     const gap = card.previousElementSibling;
     if (gap && !gap.matches(CARD)) gap.style.display = 'none';
   };
+  // Group posts carry an "Author • 2 godz." line under the group name; posts from
+  // followed pages/friends have a bare timestamp line starting with a digit instead
+  const AUTHOR_TIME = /^[^\d•·].{0,60}?[•·]\s*\d+\s*(min|godz|tydz|mies|[a-z])\.?\s*([•·]|$)/i;
   const hasFollowChip = (card) => {
     const cardTop = card.getBoundingClientRect().top;
     const spans = card.querySelectorAll('.native-text, span');
     for (const el of spans) {
-      const txt = el.textContent?.trim().toLowerCase();
-      if (txt && FOLLOW_LABELS.includes(txt) &&
-          el.getBoundingClientRect().top - cardTop < FOLLOW_ZONE_PX) {
-        return true;
-      }
+      const txt = el.textContent?.trim();
+      if (!txt || el.getBoundingClientRect().top - cardTop >= FOLLOW_ZONE_PX) continue;
+      if (FOLLOW_LABELS.includes(txt.toLowerCase())) return true;
+      if (txt.length < 80 && AUTHOR_TIME.test(txt)) return true;
     }
     return false;
   };
