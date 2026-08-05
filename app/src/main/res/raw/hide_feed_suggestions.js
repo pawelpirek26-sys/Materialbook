@@ -84,9 +84,12 @@
       'width:28px;height:28px;line-height:28px;text-align:center;' +
       'border-radius:50%;background:rgba(120,120,120,.35);color:#fff;' +
       'font-size:14px;';
-    btn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+    // FB's touch UI navigates on touchend, not click - swallow every related
+    // event so the tap never reaches the card, and act once on touchend/click
+    let done = false;
+    const ignoreSource = () => {
+      if (done) return;
+      done = true;
       const name = sourceName(rows);
       if (name) {
         ignored.add(name);
@@ -97,7 +100,15 @@
         });
       }
       hideCard(card);
-    }, true);
+    };
+    for (const type of ['touchstart', 'touchend', 'touchmove', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click']) {
+      btn.addEventListener(type, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        if (type === 'touchend' || type === 'click') ignoreSource();
+      }, { capture: true, passive: false });
+    }
     if (!card.style.position) card.style.position = 'relative';
     card.appendChild(btn);
   };
