@@ -14,8 +14,9 @@
     'groups you may like',
     'join group',
   ];
-  // Posts from non-followed pages/people show a follow chip next to the author name
-  const FOLLOW_LABELS = ['obserwuj', 'follow', 'śledź'];
+  // Posts from non-followed pages/people show a follow chip next to the author name;
+  // posts from suggested groups show a join chip instead
+  const FOLLOW_LABELS = ['obserwuj', 'follow', 'śledź', 'dołącz', 'join'];
   const FOLLOW_ZONE_PX = 200; // chip must sit in the card header, not in a nested shared post
   const CARD = '[data-tracking-duration-id]';
   const FLAG = 'data-mb-sugg-hidden';
